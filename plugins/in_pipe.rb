@@ -100,6 +100,7 @@ module Fluent
     end
 
     def start
+      @log.trace "entered start"
       @finished = false
       @loop = Coolio::Loop.new
       refresh_watchers unless @skip_refresh_on_startup
@@ -110,6 +111,7 @@ module Fluent
     end
 
     def shutdown
+      @log.trace "entered shutdown"
       @refresh_trigger.detach if @refresh_trigger && @refresh_trigger.attached?
 
       stop_watchers(@tails.keys, true)
@@ -119,6 +121,7 @@ module Fluent
     end
 
     def expand_paths
+      @log.trace "entered expand_paths"
       date = Time.now
       paths = []
 
@@ -155,6 +158,7 @@ module Fluent
     # In such case, you should separate log directory and specify two paths in path parameter.
     # e.g. path /path/to/dir/*,/path/to/rotated_logs/target_file
     def refresh_watchers
+      @log.trace "entered refresh_watchers"
       target_paths = expand_paths
       existence_paths = @tails.keys
 
@@ -166,6 +170,7 @@ module Fluent
     end
 
     def setup_watcher(path)
+      @log.trace "entered setup_watchers"
       line_buffer_timer_flusher = (@multiline_mode && @multiline_flush_interval) ? TailWatcher::LineBufferTimerFlusher.new(log, @multiline_flush_interval, &method(:flush_buffer)) : nil
       tw = TailWatcher.new(path, log, @enable_watch_timer, @read_lines_limit, method(:update_watcher), line_buffer_timer_flusher,  &method(:receive_lines))
       tw.attach(@loop)
@@ -173,12 +178,14 @@ module Fluent
     end
 
     def start_watchers(paths)
+      @log.trace "entered start_watchers"
       paths.each { |path|
         @tails[path] = setup_watcher(path)
       }
     end
 
     def stop_watchers(paths, immediate = false, unwatched = false)
+      @log.trace "entered stop_watchers"
       paths.each { |path|
         tw = @tails.delete(path)
         if tw
@@ -194,6 +201,7 @@ module Fluent
 
     # refresh_watchers calls @tails.keys so we don't use stop_watcher -> start_watcher sequence for safety.
     def update_watcher(path)
+      @log.trace "entered update_watchers"
       rotated_tw = @tails[path]
       @tails[path] = setup_watcher(path)
       close_watcher_after_rotate_wait(rotated_tw) if rotated_tw
@@ -204,6 +212,7 @@ module Fluent
     # so adding close_io argument to avoid this problem.
     # At shutdown, IOHandler's io will be released automatically after detached the event loop
     def close_watcher(tw, close_io = true)
+      @log.trace "entered close_watchers"
       tw.close(close_io)
       flush_buffer(tw)
       if tw.unwatched && @pf
@@ -212,11 +221,13 @@ module Fluent
     end
 
     def close_watcher_after_rotate_wait(tw)
+      @log.trace "entered close_watcher_after_rotate_wait"
       closer = TailWatcher::Closer.new(tw, log, &method(:close_watcher))
       closer.attach(@loop)
     end
 
     def flush_buffer(tw)
+      @log.trace "entered flush_buffer"
       if lb = tw.line_buffer
         lb.chomp!
         if @encoding
@@ -243,6 +254,7 @@ module Fluent
     end
 
     def run
+      @log.trace "entered run"
       @loop.run
     rescue
       log.error "unexpected error", error: $!.to_s
@@ -251,6 +263,7 @@ module Fluent
 
     # @return true if no error or unrecoverable error happens in emit action. false if got BufferQueueLimitError
     def receive_lines(lines, tail_watcher)
+      @log.trace "entered receive_lines"
       es = @receive_handler.call(lines, tail_watcher)
       unless es.empty?
         tag = if @tag_prefix || @tag_suffix
@@ -272,6 +285,7 @@ module Fluent
     end
 
     def convert_line_to_event(line, es, tail_watcher)
+      @log.trace "enetered convert_line_to_event"
       begin
         line.chomp!  # remove \n
         if @encoding
@@ -301,6 +315,7 @@ module Fluent
     end
 
     def parse_singleline(lines, tail_watcher)
+      @log.trace "enetered parse_singleline"
       es = MultiEventStream.new
       lines.each { |line|
         convert_line_to_event(line, es, tail_watcher)
@@ -309,6 +324,7 @@ module Fluent
     end
 
     def parse_multilines(lines, tail_watcher)
+      @log.trace "enetered parse_multilines"
       lb = tail_watcher.line_buffer
       es = MultiEventStream.new
       if @parser.has_firstline?
@@ -348,6 +364,8 @@ module Fluent
 
     class TailWatcher
       def initialize(path, log, enable_watch_timer, read_lines_limit, update_watcher, line_buffer_timer_flusher, &receive_lines)
+        @log = log
+        @log.trace "enetered TailWatcher::initialize"
         @path = path
         @enable_watch_timer = enable_watch_timer
         @read_lines_limit = read_lines_limit
@@ -358,7 +376,6 @@ module Fluent
 
         @rotate_handler = RotateHandler.new(path, log, &method(:on_rotate))
         @io_handler = nil
-        @log = log
 
         @line_buffer_timer_flusher = line_buffer_timer_flusher
       end
@@ -368,23 +385,28 @@ module Fluent
       attr_accessor :unwatched  # This is used for removing position entry from PositionFile
 
       def tag
+        @log.trace "enetered TailWatcher::tag"
         @parsed_tag ||= @path.tr('/', '.').gsub(/\.+/, '.').gsub(/^\./, '')
       end
 
       def wrap_receive_lines(lines)
+        @log.trace "enetered TailWatcher::wrap_receive_lines"
         @receive_lines.call(lines, self)
       end
 
       def attach(loop)
+        @log.trace "enetered TailWatcher::attach"
         @timer_trigger.attach(loop) if @enable_watch_timer
         on_notify
       end
 
       def detach
+        @log.trace "enetered TailWatcher::detach"
         @timer_trigger.detach if @enable_watch_timer && @timer_trigger.attached?
       end
 
       def close(close_io = true)
+        @log.trace "enetered TailWatcher::close"
         if close_io && @io_handler
           @io_handler.on_notify
           @io_handler.close
@@ -393,6 +415,7 @@ module Fluent
       end
 
       def on_notify
+        @log.trace "enetered TailWatcher::on_notify"
         @rotate_handler.on_notify if @rotate_handler
         @line_buffer_timer_flusher.on_notify(self) if @line_buffer_timer_flusher
         return unless @io_handler
@@ -400,6 +423,7 @@ module Fluent
       end
 
       def on_rotate(io)
+        @log.trace "enetered TailWatcher::on_rotate"
         if @io_handler == nil
           if io
             # first time
@@ -429,12 +453,14 @@ module Fluent
 
       class TimerWatcher < Coolio::TimerWatcher
         def initialize(interval, repeat, log, &callback)
-          @callback = callback
           @log = log
+          @log.trace "enetered TimerWatcher::initialize"
+          @callback = callback
           super(interval, repeat)
         end
 
         def on_timer
+          @log.trace "enetered TimerWatcher::on_timer"
           @callback.call
         rescue
           # TODO log?
@@ -445,6 +471,7 @@ module Fluent
 
       class Closer < Coolio::TimerWatcher
         def initialize(interval, tw, log, &callback)
+          @log.trace "enetered Closer::initialize"
           @callback = callback
           @tw = tw
           @log = log
@@ -452,6 +479,7 @@ module Fluent
         end
 
         def on_timer
+          @log.trace "enetered Closer::on_timer"
           @callback.call(@tw)
         rescue => e
           @log.error e.to_s
@@ -464,6 +492,7 @@ module Fluent
       class IOHandler
         def initialize(io, log, read_lines_limit, first = true, &receive_lines)
           @log = log
+          @log.trace "enetered IOHandler::initialize"
           @log.info "following tail of #{io.path}" if first
           @io = io
           @read_lines_limit = read_lines_limit
@@ -476,24 +505,38 @@ module Fluent
         attr_reader :io
 
         def on_notify
+          @log.trace "enetered IOHandler::on_notify"
           begin
             read_more = false
 
             if @lines.empty?
+              @log.trace "lines are empty"
               begin
                 while true
                   if @buffer.empty?
+                    @log.trace "enetered IOHandler::on_notify::bufer is empty"
                     @io.readpartial(2048, @buffer)
                   else
+                    @log.trace "enetered IOHandler::on_notify:: reading from buffer"
                     @buffer << @io.readpartial(2048, @iobuf)
                   end
                   while idx = @buffer.index("\n".freeze)
-                    @lines << @buffer.slice!(0, idx + 1)
-                  end
-                  if @lines.size >= @read_lines_limit
-                    # not to use too much memory in case the file is very large
-                    read_more = true
-                    break
+                      @lines << @buffer.slice!(0, idx + 1)
+                      if @lines.size >= @read_lines_limit
+                          # not to use too much memory in case the file is very large
+                          @log.trace "enetered IOHandler::on_notify:: need to wait for lines tobe processed"
+                          read_more = true
+                          break
+                      end
+                      unless @lines.empty?
+                          @log.trace "enetered IOHandler::on_notify:: sending lines to receive_lines"
+                          if @receive_lines.call(@lines)
+                              @log.trace "enetered IOHandler::on_notify:: clearing lines"
+                              @lines.clear
+                          else
+                              break
+                          end
+                      end
                   end
                 end
               rescue EOFError
@@ -501,12 +544,15 @@ module Fluent
             end
 
             unless @lines.empty?
-              if @receive_lines.call(@lines)
-                @lines.clear
-              else
-                read_more = false
-              end
+                @log.trace "enetered IOHandler::on_notify:: sending lines to receive_lines"
+                if @receive_lines.call(@lines)
+                    @log.trace "enetered IOHandler::on_notify:: clearing lines"
+                    @lines.clear
+                else
+                    read_more = false
+                end
             end
+
           end while read_more
 
         rescue
