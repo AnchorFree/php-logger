@@ -18,10 +18,10 @@ module Fluent
     config_param :path, :string
     desc 'The tag of the event.'
     config_param :tag, :string
+    desc 'Receive interval'
+    config_param :receive_interval, :time, :default => 1
     desc 'The paths to exclude the files from watcher list.'
     config_param :exclude_path, :array, default: []
-    desc 'Start to read the logs from the head of file, not bottom.'
-    config_param :read_from_head, :bool, default: false
     desc 'The interval of refreshing the list of watch file.'
     config_param :refresh_interval, :time, default: 60
     desc 'The number of reading lines at each IO.'
@@ -167,7 +167,7 @@ module Fluent
 
     def setup_watcher(path)
       line_buffer_timer_flusher = (@multiline_mode && @multiline_flush_interval) ? TailWatcher::LineBufferTimerFlusher.new(log, @multiline_flush_interval, &method(:flush_buffer)) : nil
-      tw = TailWatcher.new(path, log, @read_from_head, @enable_watch_timer, @read_lines_limit, method(:update_watcher), line_buffer_timer_flusher,  &method(:receive_lines))
+      tw = TailWatcher.new(path, log, @enable_watch_timer, @read_lines_limit, method(:update_watcher), line_buffer_timer_flusher,  &method(:receive_lines))
       tw.attach(@loop)
       tw
     end
@@ -347,17 +347,14 @@ module Fluent
     end
 
     class TailWatcher
-      def initialize(path, log, read_from_head, enable_watch_timer, read_lines_limit, update_watcher, line_buffer_timer_flusher, &receive_lines)
+      def initialize(path, log, enable_watch_timer, read_lines_limit, update_watcher, line_buffer_timer_flusher, &receive_lines)
         @path = path
-        @read_from_head = read_from_head
         @enable_watch_timer = enable_watch_timer
         @read_lines_limit = read_lines_limit
         @receive_lines = receive_lines
         @update_watcher = update_watcher
 
         @timer_trigger = TimerWatcher.new(1, true, log, &method(:on_notify)) if @enable_watch_timer
-
-        @stat_trigger = StatWatcher.new(path, log, &method(:on_notify))
 
         @rotate_handler = RotateHandler.new(path, log, &method(:on_rotate))
         @io_handler = nil
@@ -380,13 +377,11 @@ module Fluent
 
       def attach(loop)
         @timer_trigger.attach(loop) if @enable_watch_timer
-        @stat_trigger.attach(loop)
         on_notify
       end
 
       def detach
         @timer_trigger.detach if @enable_watch_timer && @timer_trigger.attached?
-        @stat_trigger.detach if @stat_trigger.attached?
       end
 
       def close(close_io = true)
@@ -440,22 +435,6 @@ module Fluent
         end
 
         def on_timer
-          @callback.call
-        rescue
-          # TODO log?
-          @log.error $!.to_s
-          @log.error_backtrace
-        end
-      end
-
-      class StatWatcher < Coolio::StatWatcher
-        def initialize(path, log, &callback)
-          @callback = callback
-          @log = log
-          super(path)
-        end
-
-        def on_change(prev, cur)
           @callback.call
         rescue
           # TODO log?
