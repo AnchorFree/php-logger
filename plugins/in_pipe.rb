@@ -165,28 +165,16 @@ module Fluent
       start_watchers(added) unless added.empty?
     end
 
-    def setup_watcher(path, pe)
+    def setup_watcher(path)
       line_buffer_timer_flusher = (@multiline_mode && @multiline_flush_interval) ? TailWatcher::LineBufferTimerFlusher.new(log, @multiline_flush_interval, &method(:flush_buffer)) : nil
-      tw = TailWatcher.new(path, pe, log, @read_from_head, @enable_watch_timer, @read_lines_limit, method(:update_watcher), line_buffer_timer_flusher,  &method(:receive_lines))
+      tw = TailWatcher.new(path, log, @read_from_head, @enable_watch_timer, @read_lines_limit, method(:update_watcher), line_buffer_timer_flusher,  &method(:receive_lines))
       tw.attach(@loop)
       tw
     end
 
     def start_watchers(paths)
       paths.each { |path|
-        pe = nil
-        if @pf
-          pe = @pf[path]
-          if @read_from_head && pe.read_inode.zero?
-            begin
-              pe.update(File::Stat.new(path).ino, 0)
-            rescue Errno::ENOENT
-              $log.warn "#{path} not found. Continuing without tailing it."
-            end
-          end
-        end
-
-        @tails[path] = setup_watcher(path, pe)
+        @tails[path] = setup_watcher(path)
       }
     end
 
@@ -205,9 +193,9 @@ module Fluent
     end
 
     # refresh_watchers calls @tails.keys so we don't use stop_watcher -> start_watcher sequence for safety.
-    def update_watcher(path, pe)
+    def update_watcher(path)
       rotated_tw = @tails[path]
-      @tails[path] = setup_watcher(path, pe)
+      @tails[path] = setup_watcher(path)
       close_watcher_after_rotate_wait(rotated_tw) if rotated_tw
     end
 
@@ -359,9 +347,8 @@ module Fluent
     end
 
     class TailWatcher
-      def initialize(path, pe, log, read_from_head, enable_watch_timer, read_lines_limit, update_watcher, line_buffer_timer_flusher, &receive_lines)
+      def initialize(path, log, read_from_head, enable_watch_timer, read_lines_limit, update_watcher, line_buffer_timer_flusher, &receive_lines)
         @path = path
-        @pe = pe || MemoryPositionEntry.new
         @read_from_head = read_from_head
         @enable_watch_timer = enable_watch_timer
         @read_lines_limit = read_lines_limit
@@ -422,34 +409,9 @@ module Fluent
           if io
             # first time
             stat = io.stat
-            fsize = stat.size
             inode = stat.ino
 
-            last_inode = @pe.read_inode
-            if inode == last_inode
-              # rotated file has the same inode number with the last file.
-              # assuming following situation:
-              #   a) file was once renamed and backed, or
-              #   b) symlink or hardlink to the same file is recreated
-              # in either case, seek to the saved position
-              pos = @pe.read_pos
-            elsif last_inode != 0
-              # this is FilePositionEntry and fluentd once started.
-              # read data from the head of the rotated file.
-              # logs never duplicate because this file is a rotated new file.
-              pos = 0
-              @pe.update(inode, pos)
-            else
-              # this is MemoryPositionEntry or this is the first time fluentd started.
-              # seek to the end of the any files.
-              # logs may duplicate without this seek because it's not sure the file is
-              # existent file or rotated new file.
-              pos = @read_from_head ? 0 : fsize
-              @pe.update(inode, pos)
-            end
-            io.seek(pos)
-
-            @io_handler = IOHandler.new(io, @pe, @log, @read_lines_limit, &method(:wrap_receive_lines))
+            @io_handler = IOHandler.new(io, @log, @read_lines_limit, &method(:wrap_receive_lines))
           else
             @io_handler = NullIOHandler.new
           end
@@ -459,34 +421,15 @@ module Fluent
           if io
             stat = io.stat
             inode = stat.ino
-            if inode == @pe.read_inode # truncated
-              @pe.update_pos(stat.size)
-              io_handler = IOHandler.new(io, @pe, @log, @read_lines_limit, &method(:wrap_receive_lines))
-              @io_handler.close
+              io_handler = IOHandler.new(io, @log, @read_lines_limit, &method(:wrap_receive_lines))
               @io_handler = io_handler
-            elsif @io_handler.io.nil? # There is no previous file. Reuse TailWatcher
-              @pe.update(inode, io.pos)
-              io_handler = IOHandler.new(io, @pe, @log, @read_lines_limit, &method(:wrap_receive_lines))
-              @io_handler = io_handler
-            else # file is rotated and new file found
-              @update_watcher.call(@path, swap_state(@pe))
-            end
           else # file is rotated and new file not found
             # Clear RotateHandler to avoid duplicated file watch in same path.
             @rotate_handler = nil
-            @update_watcher.call(@path, swap_state(@pe))
+            @update_watcher.call(@path)
           end
         end
 
-        def swap_state(pe)
-          # Use MemoryPositionEntry for rotated file temporary
-          mpe = MemoryPositionEntry.new
-          mpe.update(pe.read_inode, pe.read_pos)
-          @pe = mpe
-          @io_handler.pe = mpe # Don't re-create IOHandler because IOHandler has an internal buffer.
-
-          pe # This pe will be updated in on_rotate after TailWatcher is initialized
-        end
       end
 
       class TimerWatcher < Coolio::TimerWatcher
@@ -540,7 +483,7 @@ module Fluent
       end
 
       class IOHandler
-        def initialize(io, pe, log, read_lines_limit, first = true, &receive_lines)
+        def initialize(io, log, read_lines_limit, first = true, &receive_lines)
           @log = log
           @log.info "following tail of #{io.path}" if first
           @io = io
@@ -636,7 +579,7 @@ module Fluent
             if @inode != inode || fsize < @fsize
               # rotated or truncated
               begin
-                io = File.open(@path)
+                io = open(@path, "r")
               rescue Errno::ENOENT
               end
               @on_rotate.call(io)
@@ -677,125 +620,6 @@ module Fluent
     end
 
 
-    class PositionFile
-      UNWATCHED_POSITION = 0xffffffffffffffff
 
-      def initialize(file, map, last_pos)
-        @file = file
-        @map = map
-        @last_pos = last_pos
-      end
-
-      def [](path)
-        if m = @map[path]
-          return m
-        end
-
-        @file.pos = @last_pos
-        @file.write path
-        @file.write "\t"
-        seek = @file.pos
-        @file.write "0000000000000000\t0000000000000000\n"
-        @last_pos = @file.pos
-
-        @map[path] = FilePositionEntry.new(@file, seek)
-      end
-
-      def self.parse(file)
-        compact(file)
-
-        map = {}
-        file.pos = 0
-        file.each_line {|line|
-          m = /^([^\t]+)\t([0-9a-fA-F]+)\t([0-9a-fA-F]+)/.match(line)
-          next unless m
-          path = m[1]
-          pos = m[2].to_i(16)
-          ino = m[3].to_i(16)
-          seek = file.pos - line.bytesize + path.bytesize + 1
-          map[path] = FilePositionEntry.new(file, seek)
-        }
-        new(file, map, file.pos)
-      end
-
-      # Clean up unwatched file entries
-      def self.compact(file)
-        file.pos = 0
-        existent_entries = file.each_line.map { |line|
-          m = /^([^\t]+)\t([0-9a-fA-F]+)\t([0-9a-fA-F]+)/.match(line)
-          next unless m
-          path = m[1]
-          pos = m[2].to_i(16)
-          ino = m[3].to_i(16)
-          # 32bit inode converted to 64bit at this phase
-          pos == UNWATCHED_POSITION ? nil : ("%s\t%016x\t%016x\n" % [path, pos, ino])
-        }.compact
-
-        file.pos = 0
-        file.truncate(0)
-        file.write(existent_entries.join)
-      end
-    end
-
-    # pos               inode
-    # ffffffffffffffff\tffffffffffffffff\n
-    class FilePositionEntry
-      POS_SIZE = 16
-      INO_OFFSET = 17
-      INO_SIZE = 16
-      LN_OFFSET = 33
-      SIZE = 34
-
-      def initialize(file, seek)
-        @file = file
-        @seek = seek
-      end
-
-      def update(ino, pos)
-        @file.pos = @seek
-        @file.write "%016x\t%016x" % [pos, ino]
-      end
-
-      def update_pos(pos)
-        @file.pos = @seek
-        @file.write "%016x" % pos
-      end
-
-      def read_inode
-        @file.pos = @seek + INO_OFFSET
-        raw = @file.read(16)
-        raw ? raw.to_i(16) : 0
-      end
-
-      def read_pos
-        @file.pos = @seek
-        raw = @file.read(16)
-        raw ? raw.to_i(16) : 0
-      end
-    end
-
-    class MemoryPositionEntry
-      def initialize
-        @pos = 0
-        @inode = 0
-      end
-
-      def update(ino, pos)
-        @inode = ino
-        @pos = pos
-      end
-
-      def update_pos(pos)
-        @pos = pos
-      end
-
-      def read_pos
-        @pos
-      end
-
-      def read_inode
-        @inode
-      end
-    end
   end
 end
