@@ -2,7 +2,7 @@ FROM fluent/fluentd:v0.12
 
 COPY ./fluent.conf /fluentd/etc/fluent.conf
 COPY ./entrypoint.sh /entrypoint.sh
-COPY ./plugins /fluentd
+COPY ./plugins/* /fluentd/plugins/
 USER root
 RUN apk add --update \
     ruby-dev \
@@ -12,7 +12,6 @@ RUN apk add --update \
     build-base 
 
 RUN gem install --no-user-install ruby-fifo -v 0.0.1
-USER fluent
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD []
