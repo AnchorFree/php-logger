@@ -12,6 +12,7 @@ RUN apk add --update \
     build-base 
 
 RUN gem install --no-user-install ruby-fifo -v 0.0.1
+USER fluent
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD []
