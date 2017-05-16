@@ -53,8 +53,9 @@ module Fluent
 
         def start
             super
-            @log.trace "opening pipe", @path
+            @log.trace "opening pipe: ", @path
             @pipe = open(@path,"r")
+            @log.trace "opened pipe: ", @pipe
             @finished = false
             @thread = Thread.new(&method(:run))
         end
