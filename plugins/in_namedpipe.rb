@@ -53,6 +53,7 @@ module Fluent
 
         def start
             super
+            @log.trace "opening pipe", @path
             @pipe = open(@path,"r")
             @finished = false
             @thread = Thread.new(&method(:run))
@@ -63,6 +64,7 @@ module Fluent
                 begin
                     lines = @pipe.gets
                     if lines.nil?
+                        @log.trace "nothing to read, sleeping"
                         sleep @receive_interval
                         next
                     end
