@@ -105,7 +105,7 @@ module Fluent
             super
             @finished = true
             @thread.join
-            @timer_thread.join
+	    @pw.finished = true
             @pipe.close
         end
 
@@ -229,10 +229,12 @@ module Fluent
 			@flush_interval = flush_interval
 			@parser = parser
 			@tag = nil
+			@finished = finished
 		end
 
 		attr_accessor :line_buffer
 		attr_accessor :start
+		attr_accessor :finished
 
 		def notify(tag)
 			@log.trace "entered notify"
