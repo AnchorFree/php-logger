@@ -143,7 +143,7 @@ module Fluent
                         line.force_encoding(@encoding)
                     end
                 end
-                @parser.parse(line) { |time, record|
+                @parser.parse(line) do |time, record|
                     if time && record
                         es.add(time, record)
                     else
@@ -153,7 +153,7 @@ module Fluent
                         end
                         log.warn "pattern not match: #{line.inspect}"
                     end
-                }
+                end
             rescue => e
                 log.warn line.dump, error: e.to_s
                 log.debug_backtrace(e.backtrace)
@@ -163,9 +163,9 @@ module Fluent
         def parse_singleline(lines, pw)
             @log.trace "enetered parse_singleline"
             es = MultiEventStream.new
-            lines.each { |line|
+            lines.each do |line|
                 convert_line_to_event(line, es)
-            }
+            end
             es
         end
 
@@ -180,7 +180,7 @@ module Fluent
                     @pw.notify(@tag)
                     @log.trace "started timer at: ", @pw.start
                 end
-                lines.each { |line|
+                lines.each do |line|
                     @log.trace "parsing line: ", line
                     if @parser.firstline?(line)
                         @log.trace "this matched first line template"
@@ -200,19 +200,18 @@ module Fluent
                             lb << line
                         end
                     end
-                }
+                end
             else
-
                 log.warn "went to else"
                 lb ||= ''
                 lines.each do |line|
                     lb << line
-                    @parser.parse(lb) { |time, record|
+                    @parser.parse(lb) do |time, record|
                         if time && record
                             convert_line_to_event(lb, es)
                             lb = ''
                         end
-                    }
+                    end
                 end
             end
             @pw.line_buffer = lb
@@ -278,7 +277,7 @@ module Fluent
                         end
                     end
                     @log.trace "pre parser pase lb: ", lb
-                    @parser.parse(lb) { |time, record|
+                    @parser.parse(lb) do |time, record|
 
                         @log.trace "time: ", time, " record: ", record
                         if time && record
@@ -294,7 +293,7 @@ module Fluent
                         else
                             log.warn "got incomplete line at shutdown from #{path}: #{lb.inspect}"
                         end
-                    }
+                    end
                 end
             end
 
