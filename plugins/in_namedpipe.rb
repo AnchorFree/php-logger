@@ -206,7 +206,6 @@ module Fluent
                 log.warn "went to else"
                 lb ||= ''
                 lines.each do |line|
-                    lb << "\n"
                     lb << line
                     @parser.parse(lb) do |time, record|
                         if time && record
