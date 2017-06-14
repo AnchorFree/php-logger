@@ -197,6 +197,7 @@ module Fluent
                             end
                             log.warn "got incomplete line before first line from #{path}: #{line.inspect}"
                         else
+                            lb << "\n"
                             lb << line
                         end
                     end
@@ -205,6 +206,7 @@ module Fluent
                 log.warn "went to else"
                 lb ||= ''
                 lines.each do |line|
+                    lb << "\n"
                     lb << line
                     @parser.parse(lb) do |time, record|
                         if time && record
