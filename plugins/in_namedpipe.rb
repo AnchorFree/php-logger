@@ -24,6 +24,7 @@ module Fluent
         config_param :tag , :string
         desc 'The interval of flushing the buffer for multiline format'
         config_param :multiline_flush_interval, :time, default: nil
+        config_param :emit_unmatched_lines, :bool, default: false
         #TODO: Not use yet
         config_param :receive_interval, :time, :default => 1
 
