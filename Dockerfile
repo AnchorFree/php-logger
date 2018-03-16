@@ -7,9 +7,9 @@ USER root
 RUN apk add --update \
     ruby-dev \
     ruby-rake \
-    make \ 
+    make \
     gcc \
-    build-base 
+    build-base
 
 RUN gem install --no-user-install ruby-fifo -v 0.0.1
 
