@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -44,18 +45,23 @@ func main() {
 				log.Panic(err)
 			}
 			var completeString string
+			multilineTimer := time.Now()
 			for {
 				reader := bufio.NewReader(pipe)
 				scanner := bufio.NewScanner(reader)
 
 				if v.Multiline.Enabled {
+					if time.Since(multilineTimer).Seconds() > v.Multiline.FlushInterval && len(completeString) > 0 {
+						parseMessage(&completeString, &v)
+						completeString = ""
+					}
 					for scanner.Scan() {
 						line := scanner.Text()
 						if isMultilineStart(&line, &v.Multiline.FirstLine) {
 							parseMessage(&completeString, &v)
 							completeString = line
 						} else {
-							completeString += line
+							completeString += " " + line
 						}
 					}
 				} else {
@@ -83,10 +89,17 @@ func isMultilineStart(line *string, parser *string) bool {
 }
 
 func parseMessage(msg *string, conf *input) {
+	*msg = strings.Trim(*msg, " ")
 	result := make(map[string]string)
 	if len((*conf).Parsers) > 0 {
 		for _, parser := range (*conf).Parsers {
-			rExp := regexp.MustCompile(parser)
+			rExp, err := regexp.Compile(parser)
+
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+
 			match := rExp.FindStringSubmatch(*msg)
 
 			if len(match) == len(rExp.SubexpNames()) && len(match) > 1 {
@@ -101,22 +114,31 @@ func parseMessage(msg *string, conf *input) {
 		}
 		if len(result) == 0 {
 			if len(*msg) > 0 {
-				result["log"] = *msg
+				result["message"] = *msg
 				wrapJSON(&result, conf)
 			}
 		}
 	} else {
 		if len(*msg) > 0 {
-			result["log"] = *msg
+			result["message"] = *msg
 			wrapJSON(&result, conf)
 		}
 	}
 }
 
 func wrapJSON(msg *map[string]string, conf *input) {
+	err := json.Unmarshal(([]byte((*msg)["message"])), msg)
+
+	if err == nil {
+		delete((*msg), "message")
+	}
+
+	overridePHPError(msg)
+
 	if len((*conf).Tags) > 0 {
 		addTagsToMsg(msg, conf)
 	}
+
 	val, err := json.Marshal(*msg)
 	if err != nil {
 		log.Println(err)
@@ -126,7 +148,17 @@ func wrapJSON(msg *map[string]string, conf *input) {
 
 func addTagsToMsg(msg *map[string]string, conf *input) {
 	for _, v := range (*conf).Tags {
-		(*msg)[v.Name] = v.Value
+		if strings.HasPrefix(v.Value, "$") {
+			(*msg)[v.Name] = os.Getenv(strings.TrimLeft(v.Value, "$"))
+		} else {
+			(*msg)[v.Name] = v.Value
+		}
+	}
+}
+
+func overridePHPError(msg *map[string]string) {
+	if (*msg)["event_type"] == "php.error" {
+		(*msg)["php_error_log"] = fmt.Sprintf("{\"level\":\"%s\", \"error\": \"%s\"}", (*msg)["severity"], (*msg)["msg"])
 	}
 }
 

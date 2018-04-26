@@ -15,8 +15,9 @@ type input struct {
 		Value string
 	}
 	Multiline struct {
-		Enabled   bool
-		FirstLine string `yaml:"first_line"`
+		Enabled       bool
+		FirstLine     string  `yaml:"first_line"`
+		FlushInterval float64 `yaml:"flush_interval"`
 	}
 	Parsers []string
 }

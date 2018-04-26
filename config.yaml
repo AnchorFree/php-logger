@@ -1,17 +1,73 @@
 inputs:
-  - path: "/tmp/123"
+  - path: /tmp/app-error.json
     tags:
-      - name: "tag1"
-        value: "value1"
-    multiline:
-      enabled: false
-  - path: "/tmp/321"
+      - name: hostname
+        value: $HOSTNAME
+      - name: event_type
+        value: php.app-errors
+      - name: team
+        value: $TEAM
+      - name: application
+        value: $APPLICATION
+
+  - path: /tmp/app-access.json
     tags:
-      - name: "tag1"
-        value: "value1"
+      - name: hostname
+        value: $HOSTNAME
+      - name: event_type
+        value: php.app-access
+      - name: team
+        value: $TEAM
+      - name: application
+        value: $APPLICATION
+
+  - path: /tmp/php-error.log
     multiline:
       enabled: true
       first_line: ^\[\d{2}-\w{3}-\d{4}\s+\d{2}:\d{2}:\d{2}\]
+      flush_interval: 2
     parsers:
-      - ^\[(?P<time>\d{2}-\w{3}-\d{4}\s+\d{2}:\d{2}:\d{2})\]\s+\[pool\s+(?P<pool>\w+)\]\s+pid\s+(?P<pid>\d+)\s?(?P<msg>.*)
+      - ^\[(?P<time>\d{2}-\w{3}-\d{4}\s+\d{2}:\d{2}:\d{2}\s\w+\/\w+)\] PHP (?P<severity>[^:]+):(\s+)?(?P<msg>.*)
+    tags:
+      - name: hostname
+        value: $HOSTNAME
+      - name: event_type
+        value: php.error
+      - name: team
+        value: $TEAM
+      - name: application
+        value: $APPLICATION
 
+  - path: /tmp/fpm-error.log
+    multiline:
+      enabled: true
+      first_line: ^\[\d{2}-\w{3}-\d{4}\s+\d{2}:\d{2}:\d{2}(.?\d+)?\]
+      flush_interval: 2
+    parsers:
+      - ^\[(?P<timestamp>\d{2}-\w{3}-\d{4}\s+\d{2}:\d{2}:\d{2}(.?\d+)?)\] (?P<msg>.*)
+    tags:
+      - name: hostname
+        value: $HOSTNAME
+      - name: event_type
+        value: php.fpm-error
+      - name: team
+        value: $TEAM
+      - name: application
+        value: $APPLICATION
+
+  - path: /tmp/slow.log
+    multiline:
+      enabled: true
+      first_line: ^\[(\d{2}-\w{3}-\d{4}\s+\d{2}:\d{2}:\d{2})(\.\d{6})?\]
+      flush_interval: 2
+    parsers:
+      - ^\[(?P<time>\d{2}-\w{3}-\d{4}\s+\d{2}:\d{2}:\d{2}(\.\d{6})?)\]\s+\[pool\s+(?P<pool>\w+)\]\s+pid\s+(?P<pid>\d+)\s?(?P<msg>.*)
+    tags:
+      - name: hostname
+        value: $HOSTNAME
+      - name: event_type
+        value: php.slowlog
+      - name: team
+        value: $TEAM
+      - name: application
+        value: $APPLICATION
