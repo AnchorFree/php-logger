@@ -10,6 +10,7 @@ import (
 
 type input struct {
 	Path string
+	Type string
 	Tags []struct {
 		Name  string
 		Value string
