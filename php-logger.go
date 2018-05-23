@@ -48,13 +48,13 @@ func main() {
 					log.Panicf("Pipe creating error: %s", err)
 				}
 				log.Printf("Pipe %s has been created", v.Path)
-				for {
-					pipe, err := os.OpenFile(v.Path, os.O_RDONLY, os.ModeNamedPipe)
-					if err != nil {
-						log.Panicf("Pipe reading error: %s", err)
-					}
-					go readerJob(v, pipe, oscillationFactor())
+				// for {
+				pipe, err := os.OpenFile(v.Path, os.O_RDONLY, os.ModeNamedPipe)
+				if err != nil {
+					log.Panicf("Pipe reading error: %s", err)
 				}
+				go readerJob(v, pipe, oscillationFactor())
+				// }
 			}(v)
 		case "socket":
 			go func(v input) {
